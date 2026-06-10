@@ -118,6 +118,8 @@ Se não habilitou no passo 2:
 > ⚠️ **Crítico:** aguarde cada módulo ficar `Available` antes de instalar o próximo. A ordem importa por causa das dependências internas do Graph SDK.
 > 
 > Tempo total: ~10-15 minutos.
+> Modulos via powershell - https://github.com/ErickMedeiros/runbookGuestsSemMfa/blob/main/install_modules.md
+
 
 ### Validação
 
