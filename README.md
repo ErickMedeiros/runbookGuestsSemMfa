@@ -1,12 +1,12 @@
 # Runbook-GuestsSemMfa
 
-Runbook PowerShell para Azure Automation que **detecta e bloqueia automaticamente usuários Guest sem MFA** em um grupo específico do Microsoft Entra ID, gera relatório (CSV ou XLSX) e envia por e-mail via Microsoft Graph API.
+Runbook PowerShell para Azure Automation que **detecta, bloqueia e reporta convidados (Guest) sem MFA** em um grupo específico do Microsoft Entra ID. A solução gera relatório em **Excel ou CSV** e envia o resultado por e-mail via **Microsoft Graph**.
 
-[![PowerShell](https://img.shields.io/badge/PowerShell-5.1+-blue.svg)](https://docs.microsoft.com/en-us/powershell/)
+[![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue.svg)](https://docs.microsoft.com/en-us/powershell/)
 [![Azure Automation](https://img.shields.io/badge/Azure-Automation-0089D6.svg)](https://azure.microsoft.com/en-us/services/automation/)
 [![Microsoft Graph](https://img.shields.io/badge/Microsoft-Graph-742774.svg)](https://docs.microsoft.com/en-us/graph/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](#-licença)
-[![Version](https://img.shields.io/badge/Version-2.0-orange.svg)](#-changelog)
+[![Version](https://img.shields.io/badge/Version-2.1.0-orange.svg)](#-changelog)
 [![Author](https://img.shields.io/badge/Author-Erick%20Medeiros%20%7C%20MVP%20Azure-blueviolet.svg)](#-autor)
 
 ---
@@ -14,6 +14,7 @@ Runbook PowerShell para Azure Automation que **detecta e bloqueia automaticament
 ## 📋 Sumário
 
 - [Visão geral](#-visão-geral)
+- [Principais funcionalidades](#-principais-funcionalidades)
 - [Arquitetura](#-arquitetura)
 - [Pré-requisitos](#-pré-requisitos)
 - [Permissões necessárias](#-permissões-necessárias)
@@ -34,51 +35,34 @@ Runbook PowerShell para Azure Automation que **detecta e bloqueia automaticament
 
 ## 🎯 Visão geral
 
-Este runbook automatiza a governança de **usuários convidados (Guest)** no Microsoft Entra ID, garantindo que somente convidados com MFA registrado permaneçam ativos. É executado em **Azure Automation** com **Managed Identity**, sem credenciais armazenadas.
+Este projeto automatiza a governança de identidades externas no Microsoft Entra ID, garantindo que usuários convidados sem MFA registrado sejam identificados e tratados de forma controlada. O runbook foi pensado para execução em **Azure Automation**, com autenticação por **Managed Identity**, integração com **Microsoft Graph** e emissão de relatório por e-mail.
 
-### Funcionalidades
+## ✨ Principais funcionalidades
 
-- ✅ Busca membros de um grupo específico do Entra ID (suporta grupos **dinâmicos e atribuídos**)
-- ✅ Filtra Guests ativos criados antes de uma janela de tempo configurável
-- ✅ Verifica métodos de autenticação **individualmente** via REST API (mais confiável que relatórios agregados)
-- ✅ Bloqueia (`accountEnabled = false`) os Guests sem MFA
-- ✅ Gera relatório em **XLSX** (com `ImportExcel`) ou **CSV** (fallback)
-- ✅ Envia o relatório por e-mail com anexo via Microsoft Graph
-- ✅ Suporta modo **DryRun** para simulação sem aplicar bloqueios
-- ✅ Suporta múltiplos destinatários (To/Cc separados por `,` ou `;`)
+- ✅ Consulta os membros de um grupo específico do Entra ID
+- ✅ Suporta grupos **atribuídos** e **dinâmicos**
+- ✅ Filtra apenas usuários **Guest** ativos e fora da janela de tolerância configurada
+- ✅ Valida métodos de autenticação por usuário via Graph
+- ✅ Bloqueia convidados sem MFA com `accountEnabled = false`
+- ✅ Executa em modo **DryRun** para simulação segura
+- ✅ Gera relatório em **XLSX** com `ImportExcel` ou **CSV** como fallback
+- ✅ Envia e-mail com anexo usando Microsoft Graph
+- ✅ Aceita múltiplos destinatários em `To` e `Cc`
 
 ---
 
 ## 🏗 Arquitetura
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      Azure Automation Account                   │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │              Runbook (PowerShell 5.1)                     │  │
-│  │  ┌─────────────────────────────────────────────────────┐  │  │
-│  │  │  1. Connect-MgGraph -Identity                       │  │  │
-│  │  │  2. Get-MgGroupMember (grupo de Guests)             │  │  │
-│  │  │  3. Invoke-MgGraphRequest (auth methods por user)   │  │  │
-│  │  │  4. Update-MgUser (accountEnabled = false)          │  │  │
-│  │  │  5. Export-Csv / Export-Excel                       │  │  │
-│  │  │  6. Invoke-MgGraphRequest (sendMail)                │  │  │
-│  │  └─────────────────────────────────────────────────────┘  │  │
-│  └───────────────────────────────────────────────────────────┘  │
-│                       │                                         │
-│                       │ Managed Identity                        │
-│                       ▼                                         │
-└─────────────────────────────────────────────────────────────────┘
-                        │
-                        ▼
-        ┌──────────────────────────────────┐
-        │      Microsoft Graph API         │
-        │  - GroupMember.Read.All          │
-        │  - User.ReadWrite.All            │
-        │  - UserAuthenticationMethod...   │
-        │  - Mail.Send                     │
-        │  - AuditLog.Read.All             │
-        └──────────────────────────────────┘
+```text
+Azure Automation Runbook
+        |
+        |-- Managed Identity
+        |
+        +--> Microsoft Graph
+              |-- GroupMember.Read.All
+              |-- User.ReadWrite.All
+              |-- UserAuthenticationMethod.Read.All
+              |-- Mail.Send
 ```
 
 ---
@@ -87,74 +71,94 @@ Este runbook automatiza a governança de **usuários convidados (Guest)** no Mic
 
 | Recurso | Descrição |
 |---|---|
-| **Azure Automation Account** | Com **System-assigned Managed Identity** habilitada |
-| **Microsoft Entra ID** | Tenant com grupo de Guests criado |
-| **Permissões Graph** | Listadas na próxima seção (concedidas via Cloud Shell) |
-| **Módulos PowerShell** | Microsoft.Graph.* (instalados na Automation Account) |
-| **Mailbox remetente** | Caixa Exchange Online (usuário ou compartilhada) |
-| **Privilégios admin** | Global Admin ou Privileged Role Administrator (para conceder permissões) |
+| Azure Automation Account | Com identidade gerenciada habilitada |
+| Microsoft Entra ID | Tenant com grupo contendo convidados |
+| Permissões Graph | Application permissions concedidas à Managed Identity |
+| Módulos PowerShell | Microsoft.Graph.* e opcionalmente ImportExcel |
+| Caixa de e-mail | Mailbox válida para envio do relatório |
 
 ---
 
 ## 🔐 Permissões necessárias
 
-A **Managed Identity** da Automation Account precisa das seguintes **Application Permissions** no Microsoft Graph:
+A Managed Identity da Automation Account precisa, no mínimo, das seguintes permissões no Microsoft Graph:
 
-| Permissão | Justificativa |
-|---|---|
-| `GroupMember.Read.All` | Listar membros do grupo de Guests |
-| `User.ReadWrite.All` | Ler propriedades e desabilitar (`accountEnabled=false`) |
-| `UserAuthenticationMethod.Read.All` | Verificar métodos MFA por usuário |
-| `AuditLog.Read.All` | (Reserva) leitura de logs de autenticação |
-| `Mail.Send` | Envio do relatório por e-mail |
-
-### Conceder permissões via Cloud Shell
-
-```powershell
-# Substitua "aa-disablegueusers" pelo nome da sua Automation Account
-$miObjectId = (Get-AzADServicePrincipal -DisplayName "aa-disablegueusers").Id
-$graphSP    = Get-AzADServicePrincipal -Filter "displayName eq 'Microsoft Graph'"
-
-$permissions = @(
-    "GroupMember.Read.All",
-    "AuditLog.Read.All",
-    "Mail.Send",
-    "User.ReadWrite.All",
-    "UserAuthenticationMethod.Read.All"
-)
-
-foreach ($permName in $permissions) {
-    $role = $graphSP.AppRole | Where-Object { $_.Value -eq $permName }
-    if ($role) {
-        try {
-            New-AzADServicePrincipalAppRoleAssignment `
-                -ServicePrincipalId $miObjectId `
-                -ResourceId $graphSP.Id `
-                -AppRoleId $role.Id
-            Write-Output "OK: $permName"
-        } catch {
-            Write-Output "Já existe ou falhou: $permName - $($_.Exception.Message)"
-        }
-    }
-}
-```
-
-> ⚠️ Tokens da Managed Identity são cacheados — após conceder novas permissões, aguarde **15-60 minutos** para propagação.
+- `GroupMember.Read.All`
+- `User.ReadWrite.All`
+- `UserAuthenticationMethod.Read.All`
+- `Mail.Send`
+- `AuditLog.Read.All` *(opcional/reserva operacional)*
 
 ---
 
 ## 📦 Módulos PowerShell
 
-Instale via **Automation Account → Shared Resources → Modules → Browse gallery**, na ordem:
+Instale os módulos abaixo na Automation Account, respeitando a ordem:
 
 1. `Microsoft.Graph.Authentication`
 2. `Microsoft.Graph.Users`
 3. `Microsoft.Graph.Groups`
 4. `Microsoft.Graph.Reports`
 5. `Microsoft.Graph.Users.Actions`
-6. `ImportExcel` *(opcional — para gerar relatório em XLSX)*
+6. `ImportExcel` *(opcional)*
 
-> 🔧 **Runtime version: 5.1**
+> Runtime recomendado: **PowerShell 7.2** ou **5.1**, conforme compatibilidade do ambiente.
+
+### Instalação manual dos módulos
+
+Além da importação pela galeria do Azure Automation, você pode executar manualmente o script abaixo para instalar os módulos:
+
+```powershell
+# --- Parâmetros ---
+$resourceGroupName     = "<SEU_RESOURCE_GROUP>"
+$automationAccountName = "<SUA_AUTOMATION_ACCOUNT>"
+$runtimeVersion        = "7.2"   # ou "5.1"
+
+# Conecta (use Connect-AzAccount -Identity se rodar de dentro de outro runbook)
+# Connect-AzAccount
+
+# Função auxiliar para importar e aguardar conclusão
+function Import-AAModule {
+    param($Name, $Wait = $true)
+
+    $uri = "https://www.powershellgallery.com/api/v2/package/$Name"
+    Write-Output "Importando $Name ..."
+
+    New-AzAutomationModule `
+        -ResourceGroupName     $resourceGroupName `
+        -AutomationAccountName $automationAccountName `
+        -Name                  $Name `
+        -ContentLinkUri        $uri `
+        -RuntimeVersion        $runtimeVersion | Out-Null
+
+    if ($Wait) {
+        do {
+            Start-Sleep -Seconds 20
+            $m = Get-AzAutomationModule `
+                    -ResourceGroupName     $resourceGroupName `
+                    -AutomationAccountName $automationAccountName `
+                    -Name                  $Name `
+                    -RuntimeVersion        $runtimeVersion
+            Write-Output "  $Name -> $($m.ProvisioningState)"
+        } while ($m.ProvisioningState -notin @("Succeeded","Failed"))
+
+        if ($m.ProvisioningState -eq "Failed") {
+            throw "Falha ao importar $Name"
+        }
+    }
+}
+
+Import-AAModule -Name "Microsoft.Graph.Authentication" -Wait $true
+Import-AAModule -Name "Microsoft.Graph.Users"
+Import-AAModule -Name "Microsoft.Graph.Groups"
+Import-AAModule -Name "Microsoft.Graph.Reports"
+Import-AAModule -Name "Microsoft.Graph.Users.Actions"
+Import-AAModule -Name "ImportExcel"
+
+Write-Output "Concluído."
+```
+
+> Para instruções detalhadas de implantação, consulte **[IMPLANTACAO.md](./IMPLANTACAO.md)**.
 
 ---
 
@@ -162,66 +166,53 @@ Instale via **Automation Account → Shared Resources → Modules → Browse gal
 
 | Parâmetro | Tipo | Padrão | Descrição |
 |---|---|---|---|
-| `HoursWithoutMfa` | `int` | `24` | Janela em horas. Considera Guests criados há **pelo menos** este número de horas |
-| `SkipPending` | `bool` | `$false` | Se `$true`, ignora Guests com convite pendente (`PendingAcceptance`) |
-| `GuestGroupId` | `string` | *Object ID* | Object ID do grupo do Entra ID contendo os Guests a avaliar |
-| `SenderUpn` | `string` | UPN do remetente | UPN da mailbox que enviará o relatório |
-| `To` | `string` | Destinatários | Destinatários do relatório (separados por `,` ou `;`) |
-| `Cc` | `string` | *(opcional)* | Destinatários em cópia (separados por `,` ou `;`) |
-| `Subject` | `string` | Assunto padrão | Assunto do e-mail |
-| `DryRun` | `bool` | `$false` | Se `$true`, simula a execução sem aplicar bloqueios |
+| `HoursWithoutMfa` | `int` | `24` | Janela mínima em horas para considerar o convidado |
+| `SkipPending` | `bool` | `$false` | Ignora usuários com convite pendente |
+| `GuestGroupId` | `string` | obrigatório | Object ID do grupo que será avaliado |
+| `SenderUpn` | `string` | obrigatório | Remetente do e-mail |
+| `To` | `string` | obrigatório | Lista de destinatários |
+| `Cc` | `string` | opcional | Lista de destinatários em cópia |
+| `Subject` | `string` | padrão interno | Assunto do e-mail |
+| `DryRun` | `bool` | `$false` | Simula sem bloquear usuários |
 
 ---
 
 ## 🔄 Como funciona
 
-```mermaid
-flowchart TD
-    A[Início] --> B[Connect-MgGraph -Identity]
-    B --> C[Get-MgGroupMember<br/>do GuestGroupId]
-    C --> D[Filtrar AccountEnabled=true<br/>e CreatedDateTime <= cutoff]
-    D --> E{SkipPending?}
-    E -->|Sim| F[Filtrar somente<br/>ExternalUserState=Accepted]
-    E -->|Não| G
-    F --> G[Para cada Guest:<br/>Invoke-MgGraphRequest<br/>/users/id/authentication/methods]
-    G --> H{Tem método<br/>diferente de senha?}
-    H -->|Sim| I[Pula — tem MFA]
-    H -->|Não| J{DryRun?}
-    J -->|Sim| K[Apenas registra<br/>como Simulado]
-    J -->|Não| L[Update-MgUser<br/>accountEnabled=false]
-    K --> M[Gerar relatório<br/>CSV ou XLSX]
-    L --> M
-    I --> M
-    M --> N[Invoke-MgGraphRequest<br/>/users/SenderUpn/sendMail]
-    N --> O[Disconnect-MgGraph]
-    O --> P[Fim]
-```
+1. Autentica no Microsoft Graph com Managed Identity
+2. Lista os membros do grupo informado em `GuestGroupId`
+3. Filtra apenas convidados elegíveis para análise
+4. Consulta os métodos de autenticação de cada usuário
+5. Identifica quem não possui MFA efetivamente registrado
+6. Executa bloqueio ou simulação, conforme `DryRun`
+7. Gera relatório em CSV ou XLSX
+8. Envia relatório por e-mail
 
 ---
 
 ## 📥 Instalação
 
-Consulte o **[Guia de Implantação Passo a Passo](./IMPLANTACAO.md)** para instruções detalhadas.
+Resumo do processo:
 
-Resumo:
+1. Criar a Automation Account com Managed Identity
+2. Instalar os módulos PowerShell necessários
+3. Conceder permissões Graph à identidade gerenciada
+4. Criar ou importar o runbook `Runbook-GuestsSemMfa.ps1`
+5. Publicar o runbook
+6. Configurar parâmetros padrão
+7. Agendar a execução
 
-1. Criar Automation Account com Managed Identity
-2. Instalar módulos Microsoft.Graph.*
-3. Conceder permissões Graph à Managed Identity (Cloud Shell)
-4. Criar Runbook PowerShell e colar o conteúdo de `Runbook-GuestsSemMfa.ps1`
-5. **Save** e **Publish**
-6. Configurar parâmetros default
-7. Criar Schedule e linkar ao Runbook
+Para o passo a passo detalhado, consulte **[IMPLANTACAO.md](./IMPLANTACAO.md)**.
 
 ---
 
 ## 🚀 Uso
 
-### Teste manual (DryRun)
+### Teste manual
 
-No Test Pane, configurar:
+Exemplo de parâmetros para DryRun:
 
-```
+```text
 HoursWithoutMfa : 1
 SkipPending     : False
 GuestGroupId    : <Object ID do grupo>
@@ -230,159 +221,88 @@ To              : secops@seudominio.com
 DryRun          : True
 ```
 
-### Execução agendada (produção)
+### Execução em produção
 
-Recomendado: **diária às 02:00 BRT** com `DryRun=False` e `SkipPending=True`.
-
-### Execução via API
-
-```powershell
-Start-AzAutomationRunbook `
-    -AutomationAccountName "aa-disablegueusers" `
-    -ResourceGroupName "rg-governance" `
-    -Name "RumGuestDisable" `
-    -Parameters @{
-        HoursWithoutMfa = 24
-        SkipPending     = $true
-        GuestGroupId    = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-        DryRun          = $false
-    }
-```
+Recomendação: agendamento diário, com `DryRun=False` e `SkipPending=True`.
 
 ---
 
 ## 📊 Output esperado
 
-```
-=== Início do runbook (06/06/2026 15:14:20) ===
-Janela sem MFA: 48 h | SkipPending: False | DryRun: False
-ImportExcel NÃO disponível: relatório será gerado em .csv (fallback).
-Conectando ao Microsoft Graph com Managed Identity...
-Data/hora de corte: 06/04/2026 15:14:25
-Listando convidados (Guest) do tenant...
-Buscando membros do grupo 'e085a063-815d-4f53-b603-bec1b12806d1'...
-Total de convidados considerados após filtro: 1
-Verificando métodos de autenticação de cada convidado...
-  SEM MFA: analistaerickbm_gmail.com#EXT#@erickbmhotmail.onmicrosoft.com
-Candidatos a bloqueio (sem MFA e dentro da janela): 1
-Total processado: 1 | Bloqueados/Simulados: 1
-Relatório gerado (CSV): C:\Users\ContainerUser\AppData\Local\Temp\GuestsBloqueados_20260606_151432.csv
-Preparando e-mail para 2 destinatário(s)...
-E-mail enviado a partir de 'noreply@seudominio.com'.
-=== Fim do runbook (06/06/2026 15:14:32) ===
-```
+O runbook registra informações como:
 
-### Conteúdo do relatório
-
-| DisplayName | UserPrincipalName | CreatedDateTime | ExternalUserState | Action | ActionDateTimeUtc |
-|---|---|---|---|---|---|
-| Erick Teste | analistaerickbm_gmail.com#EXT#@... | 6/3/2026 7:28:10 PM | PendingAcceptance | Bloqueado | 6/6/2026 3:14:31 PM |
+- início e fim da execução
+- quantidade de usuários analisados
+- usuários sem MFA
+- ação tomada: simulado ou bloqueado
+- caminho do relatório gerado
+- status de envio do e-mail
 
 ---
 
 ## 🩺 Troubleshooting
 
-| Erro | Causa | Solução |
+| Erro | Causa provável | Solução |
 |---|---|---|
-| `Cmdlet 'Connect-MgGraph' not recognized` | Módulos Graph não instalados | Instale os módulos `Microsoft.Graph.*` na Automation Account |
-| `Cannot convert value "System.String" to SwitchParameter` | Test Pane não suporta `[switch]` | Parâmetros já usam `[bool]` — confirme que está rodando a versão atual |
-| `403 Forbidden — Insufficient privileges` | Permissão Graph faltando | Conceda permissão via Cloud Shell e aguarde propagação |
-| `403 Forbidden` mesmo com permissão concedida | Token MI em cache | Aguarde 15-60 minutos após conceder permissões |
-| `400 Bad Request` no sendMail | JSON malformado | Já corrigido com `ConvertTo-Json -Depth 20` |
-| `Total de convidados: 0` | Filtro `CreatedDateTime` ou `AccountEnabled` removeu | Reduza `HoursWithoutMfa` ou verifique o estado dos Guests |
-| Relatório sempre em CSV | `ImportExcel` não instalado | Instale o módulo (opcional) |
+| `Connect-MgGraph not recognized` | Módulos Graph ausentes | Instalar módulos necessários |
+| `403 Forbidden` | Permissões insuficientes | Revisar app roles da Managed Identity |
+| `400 Bad Request` no sendMail | Payload JSON inválido | Validar estrutura do corpo e serialização |
+| Relatório apenas CSV | `ImportExcel` ausente | Instalar módulo opcional |
 
 ---
 
 ## ✨ Boas práticas
 
-- ✅ Sempre testar com `DryRun=True` antes de habilitar bloqueios reais
-- ✅ Configurar **alertas** no Automation Account para jobs com status `Failed`
-- ✅ Usar **agendamento diário** em janela fora do horário comercial (ex: 02:00 BRT)
-- ✅ Considerar uso de **Conditional Access** como camada complementar
-- ✅ Manter inventário de Guests com revisão periódica via **Access Reviews**
-- ✅ Documentar internamente as permissões concedidas à MI para auditoria
-- ✅ Revisar logs do Runbook regularmente em **Automation Account → Jobs**
+- Validar primeiro com `DryRun=True`
+- Agendar fora do horário comercial
+- Monitorar jobs com falha no Azure Automation
+- Revisar permissões da Managed Identity periodicamente
+- Manter governança complementar com Access Reviews e Conditional Access
 
 ---
 
 ## 📜 Changelog
 
+### v2.1.0 — 2026-06-10
+
+#### 📘 Documentação
+
+- Atualizado o `README.md` com estrutura mais objetiva e alinhada ao estado atual do projeto
+- Adicionada instrução de **instalação manual dos módulos** diretamente no README
+- Padronizados exemplos com placeholders para ambiente (`<SEU_RESOURCE_GROUP>` e `<SUA_AUTOMATION_ACCOUNT>`)
+- Ajustado o direcionamento para o guia de implantação
+
 ### v2.0 — 2026-06-06
 
-Refatoração completa do script base com melhorias estruturais, de confiabilidade e de governança.
+- Refatoração estrutural do runbook
+- Substituição do filtro hardcoded por grupo do Entra ID
+- Migração de `[switch]` para `[bool]`
+- Inclusão de `GuestGroupId`
+- Melhorias no fluxo de envio de e-mail e validação de MFA
 
-#### 🔄 Breaking changes
+### v1.0
 
-- **Filtro de Guests** alterado de **sufixo de UPN hardcoded** para **membership de grupo do Entra ID** (suporta grupos dinâmicos e atribuídos).
-- Parâmetros `$SkipPending` e `$DryRun` migrados de `[switch]` para `[bool]` — necessário para compatibilidade com o **Test Pane do Azure Automation**, que não suporta switches corretamente.
-
-#### ✨ Adicionado
-
-- Novo parâmetro obrigatório `$GuestGroupId` (Object ID do grupo).
-- Parametrização completa de **remetente** (`SenderUpn`) e **destinatários** (`To`, `Cc`), eliminando valores hardcoded.
-- Módulo `Microsoft.Graph.Groups` adicionado às dependências.
-- Permissão `UserAuthenticationMethod.Read.All` adicionada à Managed Identity.
-- Output detalhado linha-a-linha com indicação `SEM MFA` / `COM MFA` por usuário, facilitando troubleshooting.
-
-#### 🔧 Alterado
-
-- **Verificação de MFA** migrada de relatório agregado (`Get-MgReportAuthenticationMethodUserRegistrationDetail`) para chamadas **per-user** via `Invoke-MgGraphRequest` ao endpoint `/users/{id}/authentication/methods`.
-  > **Motivo:** o relatório agregado não cobre Guests recém-criados ou que nunca fizeram sign-in, gerando falsos negativos.
-- **Envio de e-mail** migrado de `Send-MgUserMail` (SDK cmdlet) para `Invoke-MgGraphRequest` com `ConvertTo-Json -Depth 20`.
-  > **Motivo:** o cmdlet apresentava erros 403 inconsistentes e problemas de serialização de hashtables aninhadas em runbook.
-
-#### 🐛 Corrigido
-
-- Problema de serialização de JSON no payload de e-mail (`StartObject node was found where PrimitiveValue was expected`).
-- Falsos negativos na detecção de Guests sem MFA.
-- Incompatibilidade de parâmetros `[switch]` com o painel de teste do Azure Automation.
-
-### v1.0 — Versão inicial (modelo base)
-
-- Filtro de Guests por sufixo de UPN hardcoded.
-- Verificação de MFA via relatório agregado do Graph.
-- Envio de e-mail via `Send-MgUserMail` (SDK).
-- Destinatários e remetente hardcoded no script.
+- Versão inicial do projeto
 
 ---
 
 ## 🤝 Contribuindo
 
-Contribuições são bem-vindas! Para contribuir:
-
 1. Fork este repositório
-2. Crie uma branch para sua feature (`git checkout -b feature/nova-funcionalidade`)
-3. Commit suas alterações (`git commit -m 'Adiciona nova funcionalidade'`)
-4. Push para a branch (`git push origin feature/nova-funcionalidade`)
-5. Abra um **Pull Request**
-
-Para reportar bugs ou sugerir melhorias, abra uma **issue** descrevendo o problema ou a sugestão.
+2. Crie uma branch para sua alteração
+3. Faça commit das mudanças
+4. Envie para o seu fork
+5. Abra um Pull Request
 
 ---
 
 ## 📄 Licença
 
-Distribuído sob a licença **MIT**. Uso livre com atribuição ao autor original.
+Distribuído sob a licença **MIT**.
 
 ---
 
 ## 👤 Autor
 
-**Erick Medeiros**
-*Microsoft MVP — Azure*
-
-Especialista em administração Azure, arquitetura Microsoft 365 e automação de infraestrutura cloud com foco em segurança e governança de identidade.
-
-- 🏆 Microsoft Most Valuable Professional (MVP) — Microsoft Azure
-- ☁️ Áreas de atuação: Azure/Entra ID, PowerShell Automation, M365 Security Architecture
-
----
-
-## 🙏 Agradecimentos
-
-Solução desenvolvida com base em cenários reais de governança de identidade Microsoft 365, focada em hardening de segurança e automação de operações repetitivas.
-
----
-
-*Última atualização: 06 de junho de 2026*
+**Erick Medeiros**  
+Microsoft MVP — Azure
